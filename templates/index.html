@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>シフト自動生成ツール</title>
+    <style>
+      body {
+        font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+        margin: 24px;
+        color: #222;
+      }
+      .container {
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      .jobs {
+        border: 1px solid #ccc;
+        padding: 12px;
+        border-radius: 8px;
+      }
+      .job-row {
+        display: grid;
+        grid-template-columns: 1fr 140px 40px;
+        gap: 8px;
+        margin-bottom: 8px;
+        align-items: center;
+      }
+      .job-row input {
+        padding: 6px 8px;
+      }
+      button {
+        padding: 6px 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .error {
+        color: #b00020;
+        margin-top: 8px;
+      }
+      .warning {
+        color: #8a6d3b;
+        margin-top: 8px;
+      }
+      .actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>シフト 1日分の生成ツール</h1>
+
+      <form method="post" action="/generate">
+        <h2>仕事内容</h2>
+        <div class="jobs" id="jobs">
+          <div class="job-row">
+            <input type="text" name="job_name" placeholder="仕事内容（例: 受付）" required />
+            <input type="number" name="job_required" min="1" value="1" required />
+            <button type="button" onclick="removeJob(this)">削除</button>
+          </div>
+        </div>
+        <button type="button" onclick="addJob()">仕事内容を追加</button>
+
+        <div class="actions">
+          <button type="submit">割り当てを生成</button>
+          <button type="submit" onclick="setDownload()">Excel出力</button>
+        </div>
+        <input type="hidden" name="download" id="download" value="0" />
+      </form>
+
+      {% if errors %}
+      <div class="error">
+        <ul>
+          {% for e in errors %}
+          <li>{{ e }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if warnings %}
+      <div class="warning">
+        <ul>
+          {% for w in warnings %}
+          <li>{{ w }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if result %}
+      <h2>シフト表</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>時間</th>
+            {% for job in result.jobs %}
+            <th>{{ job.name }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for time_slot in result.time_slots %}
+          <tr>
+            <td>{{ time_slot }}</td>
+            {% for job in result.jobs %}
+            <td>
+              {% for name in result.assignments[time_slot][job.name] %}
+              <div>{{ name }}</div>
+              {% endfor %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <script>
+      const STORAGE_KEY = "shift_jobs_v1";
+
+      function addJob(name = "", required = 1) {
+        const container = document.getElementById("jobs");
+        const row = document.createElement("div");
+        row.className = "job-row";
+        row.innerHTML = `
+          <input type="text" name="job_name" placeholder="仕事内容（例: 受付）" required value="${name}" />
+          <input type="number" name="job_required" min="1" value="${required}" required />
+          <button type="button" onclick="removeJob(this)">削除</button>
+        `;
+        container.appendChild(row);
+      }
+
+      function removeJob(btn) {
+        const row = btn.parentElement;
+        const container = document.getElementById("jobs");
+        if (container.children.length > 1) {
+          container.removeChild(row);
+        } else {
+          row.querySelector('input[name="job_name"]').value = "";
+          row.querySelector('input[name="job_required"]').value = 1;
+        }
+        saveJobs();
+      }
+
+      function setDownload() {
+        document.getElementById("download").value = "1";
+      }
+
+      function serializeJobs() {
+        const rows = Array.from(document.querySelectorAll(".job-row"));
+        return rows.map((row) => {
+          const name = row.querySelector('input[name="job_name"]').value.trim();
+          const required = row.querySelector('input[name="job_required"]').value;
+          return { name, required };
+        });
+      }
+
+      function saveJobs() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeJobs()));
+      }
+
+      function loadJobs() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (e) {
+          return;
+        }
+        if (!Array.isArray(data) || data.length === 0) {
+          return;
+        }
+        const container = document.getElementById("jobs");
+        container.innerHTML = "";
+        data.forEach((row) => {
+          const name = typeof row.name === "string" ? row.name : "";
+          const required = row.required ? Number(row.required) : 1;
+          addJob(name, required || 1);
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        loadJobs();
+        const container = document.getElementById("jobs");
+        container.addEventListener("input", (event) => {
+          if (event.target && event.target.name) {
+            saveJobs();
+          }
+        });
+        const form = document.querySelector("form");
+        form.addEventListener("submit", () => saveJobs());
+      });
+    </script>
+  </body>
+</html>
